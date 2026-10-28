@@ -1,1 +1,5 @@
-# concrete-crack-lab
+# 콘크리트 균열 탐지 및 시점별 분석 시스템
+
+서로 다른 각도에서 찍은 콘크리트 사진 두 장을 브라우저 안에서 정렬하고, 균열 후보의 변화를 비교합니다. 사진은 서버로 전송되지 않습니다.
+
+게시 주소: https://qkimshic.github.io/concrete-crack-lab/
