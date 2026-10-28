@@ -22,7 +22,7 @@ function cvAnalyze(cv,refData,curData,o,manual){
  if(!manual)flags=Array.from(inliers.data);
  const hm=Array.from(H.data64F);const transform=([x,y])=>{let z=hm[6]*x+hm[7]*y+hm[8];return [(hm[0]*x+hm[1]*y+hm[2])/z,(hm[3]*x+hm[4]*y+hm[5])/z]};
  const errors=[],ip=[],iq=[];flags.forEach((f,i)=>{if(f){ip.push(p[i]);iq.push(q[i]);let t=transform(p[i]);errors.push(Math.hypot(t[0]-q[i][0],t[1]-q[i][1]))}});errors.sort((a,b)=>a-b);if(!manual)median=errors[Math.floor(errors.length/2)];
- if(!manual&&(errors.length<10||errors.length/matches<.35||median>2.5||hullArea(iq)<w*h*.03))throw Error('정렬 신뢰도가 낮습니다. 수동 기준점을 사용하세요.');
+ if(!manual&&(errors.length<10||median>2.5||hullArea(iq)<w*h*.03||(errors.length/matches<.08&&errors.length<20)))throw Error('정렬 신뢰도가 낮습니다. 수동 기준점을 사용하세요.');
  const corners=[[0,0],[cur.cols,0],[cur.cols,cur.rows],[0,cur.rows]],den=corners.map(([x,y])=>hm[6]*x+hm[7]*y+hm[8]),corn=own(cv.matFromArray(4,1,cv.CV_32FC2,corners.map(transform).flat()));let ar=cv.contourArea(corn)/(w*h);
  if(!hm.every(Number.isFinite)||Math.min(...den)*Math.max(...den)<=0||!cv.isContourConvex(corn)||ar<.15||ar>6)throw Error('변환이 지나치게 왜곡되었습니다. 사진과 기준점을 확인하세요.');
  const aligned=mat();cv.warpPerspective(cur,aligned,H,new cv.Size(w,h));
