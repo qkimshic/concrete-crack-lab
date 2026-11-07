@@ -41,7 +41,7 @@ function cvAnalyze(cv,refData,curData,o,manual){
  function length(m){let s=Uint8Array.from(m.data,x=>x?1:0),remove=[],changed=true,loops=0;while(changed&&loops++<100){changed=false;for(let pass=0;pass<2;pass++){remove=[];for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){let i=y*w+x;if(!s[i])continue;let p=[s[i-w],s[i-w+1],s[i+1],s[i+w+1],s[i+w],s[i+w-1],s[i-1],s[i-w-1]],n=p.reduce((a,b)=>a+b,0),t=0;for(let k=0;k<8;k++)if(!p[k]&&p[(k+1)%8])t++;if(n<2||n>6||t!==1)continue;if(pass===0?(p[0]*p[2]*p[4]||p[2]*p[4]*p[6]):(p[0]*p[2]*p[6]||p[0]*p[4]*p[6]))continue;remove.push(i)}if(remove.length)changed=true;for(const i of remove)s[i]=0;}}
  let l=0;for(let y=0;y<h;y++)for(let x=0;x<w;x++){let i=y*w+x;if(!s[i])continue;if(x+1<w&&s[i+1])l++;if(y+1<h&&s[i+w])l++;if(x+1<w&&y+1<h&&s[i+w+1]&&!s[i+1]&&!s[i+w])l+=Math.SQRT2;if(x>0&&y+1<h&&s[i+w-1]&&!s[i-1]&&!s[i+w])l+=Math.SQRT2;}return Math.round(l*100)/100;}
  let ma=cv.countNonZero(a),mb=cv.countNonZero(b),la=length(a),lb=length(b);const metrics={reference_area_px2:ma,current_area_px2:mb,area_delta_px2:mb-ma,new_candidate_area_px2:newly,missing_candidate_area_px2:lost,reference_length_px:la,current_length_px:lb,length_delta_px:Math.round((lb-la)*100)/100,area_change_percent:ma?100*(mb-ma)/ma:null,length_change_percent:la?100*(lb-la)/la:null};
- const warnings=['명암 규칙으로 검출한 균열 후보입니다. 얼룩·그림자를 육안 확인하세요.','신규·미검출 후보는 실제 진행·소멸을 확정하지 않습니다. 공통 영역만 비교합니다.'];if(manual)warnings.push('수동 4점은 독립적인 정렬 정확도 검증이 아닙니다.');if(o.scale){Object.assign(metrics,{approx_reference_area_mm2:ma*o.scale**2,approx_current_area_mm2:mb*o.scale**2,approx_reference_length_mm:la*o.scale,approx_current_length_mm:lb*o.scale,approx_area_delta_mm2:(mb-ma)*o.scale**2,approx_length_delta_mm:(lb-la)*o.scale});warnings.push('실단위는 기준 사진이 정면 또는 정사보정된 평면이며 척도가 정확할 때만 유효합니다.')}
+ const warnings=['명암 규칙으로 검출한 균열 후보입니다. 얼룩·그림자를 육안 확인하세요.','신규·미검출 후보는 실제 진행·소멸을 확정하지 않습니다. 공통 영역만 비교합니다.'];if(manual)warnings.push('수동 4점은 독립적인 정렬 정확도 검증이 아닙니다.');
  const vis=own(new cv.Mat(Math.max(h,cur.rows),w+cur.cols,cv.CV_8UC4,new cv.Scalar(230,230,230,255))),roi1=own(vis.roi(new cv.Rect(0,0,w,h))),roi2=own(vis.roi(new cv.Rect(w,0,cur.cols,cur.rows)));ref.copyTo(roi1);cur.copyTo(roi2);for(let i=0;i<Math.min(ip.length,60);i++)cv.line(vis,new cv.Point(ip[i][0]+w,ip[i][1]),new cv.Point(iq[i][0],iq[i][1]),new cv.Scalar(65,200,105,255),1);
  // 후보 마스크의 윤곽만 원본 사진 위에 표시한다.
  const refContour=mat(),curContour=mat();ref.copyTo(refContour);cur.copyTo(curContour);
@@ -53,3 +53,4 @@ function cvAnalyze(cv,refData,curData,o,manual){
  }finally{for(let i=allocated.length-1;i>=0;i--)allocated[i].delete();}
 }
 if(typeof module!=='undefined')module.exports=cvAnalyze;
+
