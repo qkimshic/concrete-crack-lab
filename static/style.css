@@ -3,3 +3,5 @@
 [hidden]{display:none!important} #status:empty{display:none}.results{min-height:660px}.sample .buttons{margin-top:12px}.sample button{min-width:0}.upload input{font-size:12px}.legend{align-items:center} @media(max-width:650px){.results{min-height:0}}
 
 .manual-buttons{display:flex;flex-wrap:wrap;gap:6px}.manual-buttons button{font-size:12px}.manual-buttons button:disabled{opacity:.5}
+
+label.checkbox{display:flex;align-items:center;gap:6px}input[type=checkbox]{display:inline-block;width:auto;margin:0;accent-color:#111}
