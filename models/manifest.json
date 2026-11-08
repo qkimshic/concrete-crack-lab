@@ -1,0 +1,57 @@
+{
+  "id": "samir-mohamed/concrete-crack-segmentation",
+  "revision": "55b4933b417822f8dda632cca19e391406d0bc7e",
+  "source_url": "https://huggingface.co/samir-mohamed/concrete-crack-segmentation",
+  "weights_sha256": "a709ea035bae805ee837341a4a6ca5045342995cf6b23451186ff582449a5454",
+  "license": "MIT",
+  "format": "ONNX float32 opset 17",
+  "input": {
+    "name": "image",
+    "shape": [
+      1,
+      3,
+      256,
+      256
+    ],
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "output": {
+    "name": "output",
+    "crack_score": "1 - output",
+    "note": "Source weights produce high background values in the inspected crack images."
+  },
+  "bytes": 124137521,
+  "sha256": "5266a3e2605051dbb08e7536c70ba67393b66fd9058351c80857500ef6357a91",
+  "export_maximum_error": 1.7881393432617188e-07,
+  "chunks": [
+    {
+      "file": "concrete-unet.part00.bin",
+      "bytes": 33554432,
+      "sha256": "524443ee914d04b57f94a2e22890dc3d728031de53be9a0c79d3167f59eba2e2"
+    },
+    {
+      "file": "concrete-unet.part01.bin",
+      "bytes": 33554432,
+      "sha256": "d8e529015d3783f2860e09f9395926eddfff0094e6e3f54b222cb08197e1fa25"
+    },
+    {
+      "file": "concrete-unet.part02.bin",
+      "bytes": 33554432,
+      "sha256": "70f89b0509f6ed0ab0e6784b46c93a392599335297b4a16a46dc841fbf740db6"
+    },
+    {
+      "file": "concrete-unet.part03.bin",
+      "bytes": 23474225,
+      "sha256": "8b10445e497e52c9ca7e1d762f27504954f1d2b8c08a71e9f16ba77eab69f85c"
+    }
+  ]
+}
