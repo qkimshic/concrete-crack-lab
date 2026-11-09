@@ -1,5 +1,7 @@
 const $=id=>document.getElementById(id);
 const files={},photos={},points={reference:[],current:[]};let result=null,sample='',revision=0,busy=false,activeView='overlay';
+let photoRevision=0,loadingExample=false;
+const photoRequests={reference:0,current:0};
 const canvasIds={reference:'refCanvas',current:'curCanvas'};
 const isManual=()=>$('mode').value.startsWith('manual');
 const pointLimit=()=>10;
@@ -7,7 +9,7 @@ function updatePointStatus(){const n=pointLimit();$('pointStatus').textContent=`
 function status(t,cls=''){$('status').textContent=t;$('status').className=cls;}
 function invalidate(){revision++;if(result){result=null;$('result').hidden=true;$('empty').hidden=false;status('입력 또는 조정값이 변경되었습니다. 다시 분석하세요.','stale');}}
 function render(key){const c=$(canvasIds[key]),im=photos[key];if(!im)return;c.width=im.naturalWidth;c.height=im.naturalHeight;const ctx=c.getContext('2d');ctx.drawImage(im,0,0);const size=Math.max(4,Math.min(c.width,c.height)/85);points[key].forEach((p,i)=>{ctx.fillStyle='#b74c2d';ctx.beginPath();ctx.arc(p[0]*c.width,p[1]*c.height,size,0,7);ctx.fill();ctx.fillStyle='white';ctx.font=`bold ${size*1.2}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(i+1,p[0]*c.width,p[1]*c.height)});c.style.display='block';updatePointStatus();}
-async function load(key,file,isSample=false){if(!file)return;if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>10485760){status('JPG, PNG, WEBP 형식의 10MB 이하 사진을 사용하세요.','error');return}const url=URL.createObjectURL(file),im=new Image();try{await new Promise((ok,no)=>{im.onload=ok;im.onerror=no;im.src=url});files[key]=file;photos[key]=im;points[key]=[];if(!isSample&&sample){sample='';$('reference_date').value='';$('current_date').value='';$('location').value='';document.querySelectorAll('[data-sample]').forEach(b=>b.classList.remove('active'));}invalidate();$(key==='reference'?'refName':'curName').textContent=`${file.name} · ${im.naturalWidth} × ${im.naturalHeight}px · ${file.type} · ${(file.size/1024/1024).toFixed(2)}MB`;render(key);if(!result)status('사진 입력 완료. 조정값을 확인하고 분석하세요.');}catch{status('이미지를 읽을 수 없습니다.','error')}finally{URL.revokeObjectURL(url)}}
+async function load(key,file){if(!file)return;if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>10485760){status('JPG, PNG, WEBP 형식의 10MB 이하 사진을 사용하세요.','error');return}photoRevision++;const request=++photoRequests[key];invalidate();const url=URL.createObjectURL(file),im=new Image();try{await new Promise((ok,no)=>{im.onload=ok;im.onerror=no;im.src=url});if(request!==photoRequests[key])return;files[key]=file;photos[key]=im;points[key]=[];if(sample){sample='';$('reference_date').value='';$('current_date').value='';$('location').value='';}invalidate();$(key==='reference'?'refName':'curName').textContent=`${file.name} · ${im.naturalWidth} × ${im.naturalHeight}px · ${file.type} · ${(file.size/1024/1024).toFixed(2)}MB`;render(key);if(!result)status('사진 입력 완료. 조정값을 확인하고 분석하세요.');}catch{if(request===photoRequests[key])status('이미지를 읽을 수 없습니다.','error')}finally{URL.revokeObjectURL(url)}}
 for(const key of ['reference','current']){$(key).onchange=e=>load(key,e.target.files[0]);const area=$(key).closest('.upload');area.ondragover=e=>{e.preventDefault();area.classList.add('drag')};area.ondragleave=()=>area.classList.remove('drag');area.ondrop=e=>{e.preventDefault();area.classList.remove('drag');load(key,e.dataTransfer.files[0])};$(canvasIds[key]).onclick=e=>{if(!isManual()||points[key].length>=pointLimit())return;const r=e.target.getBoundingClientRect();points[key].push([(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height]);invalidate();render(key)}}
 for(const id of ['brightness','contrast','threshold','modelThreshold']){$(id).oninput=()=>{$(id+'Val').textContent=$(id).value;invalidate()}}
 for(const id of ['minimum','tolerance','guideWidth','crackRegion','reference_date','current_date','location'])$(id).oninput=invalidate;
@@ -18,7 +20,6 @@ $('mode').onchange=()=>{points.reference=[];points.current=[];$('manualHelp').hi
 $('clearPoints').onclick=()=>{points.reference=[];points.current=[];render('reference');render('current');updatePointStatus();invalidate()};
 for(const [id,key] of [['undoReference','reference'],['undoCurrent','current']])$(id).onclick=()=>{points[key].pop();render(key);updatePointStatus();invalidate()};
 $('reset').onclick=()=>{$('refine').checked=true;detectorControls();$('crackRegion').value='all';$('guideWidth').value=20;for(const [k,v] of Object.entries({brightness:0,contrast:1,threshold:8,modelThreshold:2,minimum:10,tolerance:3})){$(k).value=v;if($(k+'Val'))$(k+'Val').textContent=v}invalidate();status('조정값을 초기화했습니다.')};
-const sampleSets={angle_only:'합성: 각도만 변화',brightness_angle:'합성: 밝기 + 각도',growth_angle:'합성: 각도 + 균열 증가',shadow_angle:'합성: 그림자 + 각도'};
 function applyAnalysisPreset(precision) {
  if (precision && !isManual()) {
   $('mode').value='manual';
@@ -42,15 +43,59 @@ function applyAnalysisPreset(precision) {
 }
 $('presetPrecision').onclick=()=>applyAnalysisPreset(true);
 $('presetFine').onclick=()=>applyAnalysisPreset(false);
-async function example(name){try{status('예제 사진을 불러오는 중…');for(const [key,fileName] of [['reference','reference'],['current',name]]){const res=await fetch(`samples/${fileName}.png`);if(!res.ok)throw Error('예제 파일이 없습니다.');await load(key,new File([await res.blob()],fileName+'.png',{type:'image/png'}),true)}sample=sampleSets[name];$('location').value='합성 시험체 A · 동일 평면 · 단색 회색 배경';$('reference_date').value='2026-10-01';$('current_date').value='2026-10-08';document.querySelectorAll('[data-sample]').forEach(b=>b.classList.toggle('active',b.dataset.sample===name));status(sample+' · 사진을 확인하고 분석하세요.')}catch(e){status(e.message,'error')}}
-document.querySelectorAll('[data-sample]').forEach(b=>b.onclick=()=>example(b.dataset.sample));
+const realExample = [
+ {key:'reference',name:'IMG_0279.jpg',width:425,height:502,
+  points:[[35,189],[100,219],[160,247],[216,273],[270,294],[315,309],[340,317],[365,325],[400,339]]},
+ {key:'current',name:'IMG_0280.jpg',width:1109,height:1254,
+  points:[[90,250],[260,330],[420,403],[570,466],[705,522],[822,566],[887,587],[952,609],[1043,650]]}
+];
+
+async function prepareExamplePhoto(item) {
+ const response=await fetch(`samples/${item.name}`);
+ if(!response.ok)throw Error('실제 사진을 불러오지 못했습니다.');
+ const file=new File([await response.blob()],item.name,{type:'image/jpeg'});
+ const url=URL.createObjectURL(file),image=new Image();
+ try {
+  await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url});
+  if(image.naturalWidth!==item.width||image.naturalHeight!==item.height)throw Error('실제 사진의 크기를 확인하세요.');
+  return {item,file,image};
+ } finally {URL.revokeObjectURL(url)}
+}
+
+$('realSample').onclick=async()=>{
+ if(busy||loadingExample)return;
+ loadingExample=true;
+ const request=++photoRevision;
+ photoRequests.reference++;photoRequests.current++;
+ invalidate();
+ const initialRevision=revision;
+ $('realSample').disabled=true;$('analyze').disabled=true;
+ status('실제 사진을 불러오는 중…');
+ try {
+  const prepared=await Promise.all(realExample.map(prepareExamplePhoto));
+  if(request!==photoRevision||initialRevision!==revision){status('입력이 변경되었습니다. 사진을 다시 불러오세요.');return;}
+  $('reset').onclick();
+  applyAnalysisPreset(true);
+  for(const {item,file,image} of prepared){
+   files[item.key]=file;photos[item.key]=image;
+   points[item.key]=item.points.map(([x,y])=>[x/item.width,y/item.height]);
+   $(item.key).value='';
+   $(item.key==='reference'?'refName':'curName').textContent=`${file.name} · ${image.naturalWidth} × ${image.naturalHeight}px · ${file.type} · ${(file.size/1024/1024).toFixed(2)}MB`;
+  }
+  $('reference_date').value='';$('current_date').value='';$('location').value='';
+  sample='실제 균열 사진';
+  render('reference');render('current');
+  status('실제 균열 사진을 불러왔습니다.');
+ }catch(error){status(error.message||'실제 사진을 불러오지 못했습니다.','error')}
+ finally{loadingExample=false;$('realSample').disabled=false;$('analyze').disabled=busy;}
+};
 function metric(label,value,unit){const box=document.createElement('div');box.className='stat';for(const [tag,t] of [['small',label],['strong',value],['em',unit]]){const a=document.createElement(tag);a.textContent=t;box.append(a)}return box}
 function showView(view){if(!result)return;const scope=result.comparison?.scope==='segment'?'지정 구간':result.parameters.guide?'대응점 주변':'사진 전체';activeView=view;$('resultLegend').hidden=view!=='overlay';$('viewExplanation').textContent=({overlay:'어두운 영역: 공통 분석 범위 밖 · 미검출은 균열 소멸을 뜻하지 않습니다.',reference_contour:`이전 ${scope}의 균열 후보 윤곽선입니다. 변화 비교는 공통 영역만 사용합니다.`,current_contour:`현재 ${scope}의 균열 후보 윤곽선입니다. 변화 비교는 공통 영역만 사용합니다.`,reference_preprocessed:result.segmentation.method.startsWith('U-Net')?'이전 사진의 U-Net 입력 RGB 영상입니다. (256×256px)':'기준 사진의 잡음 제거·국부 명암 보정 결과입니다.',current_preprocessed:result.segmentation.method.startsWith('U-Net')?'현재 사진의 U-Net 입력 RGB 영상입니다. (256×256px)':'현재 사진의 잡음 제거·국부 명암 보정 결과입니다.',matches:result.registration.manual?'같은 번호가 같은 지점입니다. 초록색은 사용, 빨간색은 제외된 점입니다.':'두 사진의 대응점 중 RANSAC으로 선택한 내점을 최대 60쌍 표시합니다.',aligned:'현재 사진을 기준 사진의 좌표계로 정렬했습니다.',current_mask:`현재 ${scope}의 균열 후보입니다. 흰색은 후보 픽셀입니다.`,reference_mask:`이전 ${scope}의 균열 후보입니다. 흰색은 후보 픽셀입니다.`})[view]||'';$('resultImage').src=result.images[view];$('imageLink').href=result.images[view];document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view))}
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));
 function display(){const r=result.registration,m=result.metrics;$('empty').hidden=true;$('result').hidden=false;$('quality').textContent=r.manual?`${r.method} · 사용 ${r.inliers}/${r.matches}쌍`:`${r.method} · 내점 ${r.inliers}/${r.matches}`;$('quality').textContent=result.segmentation.method+' · '+$('quality').textContent;$('overlap').textContent=`공통 영역 ${(r.overlap_ratio*100).toFixed(1)}%`;$('scopeSummary').hidden=!result.parameters.guide;$('scopeSummary').textContent=(result.comparison.scope==='segment'?'지정 구간':'대응점 주변')+' · 반폭 '+result.parameters.guideWidth+'px · 공통 분석 '+result.comparison.analysis_area_px2.toLocaleString()+'px²';$('stats').replaceChildren(metric('신규 변화 후보',m.new_candidate_area_px2.toLocaleString(),'px² · 허용 거리 밖'),metric('미검출 후보',m.missing_candidate_area_px2.toLocaleString(),'px² · 소멸 판정 아님'),metric('정렬 잔차 중앙값',r.median_error_px===null?'—':r.median_error_px.toFixed(2),'px · 대응점 기준'));
 const rows=[['후보 면적 (px²)',m.reference_area_px2,m.current_area_px2,m.area_delta_px2],['중심선 길이 (px)',m.reference_length_px,m.current_length_px,m.length_delta_px]];$('measurements').replaceChildren(...rows.map(row=>{let tr=document.createElement('tr');row.forEach(v=>{let td=document.createElement('td');td.textContent=typeof v==='number'?v.toLocaleString(undefined,{maximumFractionDigits:3}):v;tr.append(td)});return tr}));$('warnings').replaceChildren(...result.warnings.map(t=>{const p=document.createElement('p');p.textContent=t;return p}));$('meta').textContent=`${result.metadata.location||'위치 미입력'} · ${result.metadata.reference_date||'날짜 미입력'} → ${result.metadata.current_date||'날짜 미입력'} · 기준 처리 크기 ${result.processing_size.reference.join(' × ')}px${result.metadata.sample?' · '+result.metadata.sample:''}`;const delta=(v,unit)=>`${v>0?'+':''}${v.toLocaleString(undefined,{maximumFractionDigits:2})}${unit}`;$('changeSummary').textContent=`공통 영역의 후보 면적 변화 ${delta(m.area_delta_px2,'px²')}, 중심선 길이 변화 ${delta(m.length_delta_px,'px')}. 이는 검출값의 변화이며 실제 균열 진행을 확정하지 않습니다.`;showView('overlay')}
-$('analyze').onclick=async()=>{if(busy)return;if(!files.reference||!files.current){status('이전 사진과 현재 사진을 모두 입력하세요.','error');return}if(isManual()&&(points.reference.length<2||points.reference.length!==points.current.length)){status('각 사진에 같은 수의 대응점을 2~10쌍 지정하세요.','error');return}if($('crackRegion').value!=='all'&&!isManual()){status('구간 분석은 수동 대응점을 지정한 뒤 실행하세요.','error');return}if($('reference_date').value&&$('current_date').value&&$('current_date').value<$('reference_date').value){status('현재 촬영 날짜는 이전 촬영 날짜보다 빠를 수 없습니다.','error');return}
-const fd=new FormData();for(const k of ['reference','current'])fd.append(k,files[k]);for(const k of ['brightness','contrast','threshold','modelThreshold','minimum','tolerance','reference_date','current_date','location'])fd.append(k,$(k).value);fd.append('sample',sample);if(isManual())fd.append('manual',JSON.stringify(points));const version=revision;busy=true;$('analyze').disabled=true;result=null;$('result').hidden=true;$('empty').hidden=false;status('특징점 정렬 및 균열 후보를 분석하는 중…');try{if(!window.cv||!cv.Mat)throw Error('분석 엔진을 불러오는 중입니다. 잠시 후 다시 실행하세요.'); await new Promise(r=>setTimeout(r,80)); const o={};for(const k of ['brightness','contrast','threshold','modelThreshold','minimum','tolerance'])o[k]=Number(fd.get(k));for(const [k,lo,hi] of [['brightness',-60,60],['contrast',.5,2],['threshold',5,100],['modelThreshold',.1,50],['minimum',5,2000],['tolerance',0,15]])if(!Number.isFinite(o[k])||o[k]<lo||o[k]>hi)throw Error(k+' 입력 범위를 확인하세요.');o.detector=$('detector').value;o.refine=o.detector==='unet'&&$('refine').checked;o.guide=$('crackRegion').value!=='all';o.guideScope=$('crackRegion').value==='segment'?'segment':'extended';o.guideWidth=Number($('guideWidth').value);if(!Number.isFinite(o.guideWidth)||o.guideWidth<3||o.guideWidth>80)throw Error('주변 반폭은 3~80px 범위로 입력하세요.');const data=await cvAnalyze(cv,photoData('reference'),photoData('current'),o,isManual()?structuredClone(points):null,image=>UnetSegmentation.segment(image,message=>status(message)));data.metadata={};for(const k of ['reference_date','current_date','location','sample'])data.metadata[k]=fd.get(k);data.metadata.reference_file=files.reference.name;data.metadata.current_file=files.current.name;for(const [k,v] of Object.entries(data.images)){const c=document.createElement('canvas');c.width=v.width;c.height=v.height;c.getContext('2d').putImageData(new ImageData(v.data,v.width,v.height),0,0);data.images[k]=c.toDataURL('image/png');}if(version!==revision){status('분석 중 입력이 변경되었습니다. 다시 실행하세요.','stale');return}result=data;display();status('분석 완료. 특징점 대응과 검출 영역을 함께 확인하세요.')}catch(e){status(e.message,'error')}finally{busy=false;$('analyze').disabled=false}};
+$('analyze').onclick=async()=>{if(busy||loadingExample)return;if(!files.reference||!files.current){status('이전 사진과 현재 사진을 모두 입력하세요.','error');return}if(isManual()&&(points.reference.length<2||points.reference.length!==points.current.length)){status('각 사진에 같은 수의 대응점을 2~10쌍 지정하세요.','error');return}if($('crackRegion').value!=='all'&&!isManual()){status('구간 분석은 수동 대응점을 지정한 뒤 실행하세요.','error');return}if($('reference_date').value&&$('current_date').value&&$('current_date').value<$('reference_date').value){status('현재 촬영 날짜는 이전 촬영 날짜보다 빠를 수 없습니다.','error');return}
+const fd=new FormData();for(const k of ['reference','current'])fd.append(k,files[k]);for(const k of ['brightness','contrast','threshold','modelThreshold','minimum','tolerance','reference_date','current_date','location'])fd.append(k,$(k).value);fd.append('sample',sample);if(isManual())fd.append('manual',JSON.stringify(points));const version=revision;busy=true;$('analyze').disabled=true;$('realSample').disabled=true;result=null;$('result').hidden=true;$('empty').hidden=false;status('특징점 정렬 및 균열 후보를 분석하는 중…');try{if(!window.cv||!cv.Mat)throw Error('분석 엔진을 불러오는 중입니다. 잠시 후 다시 실행하세요.'); await new Promise(r=>setTimeout(r,80)); const o={};for(const k of ['brightness','contrast','threshold','modelThreshold','minimum','tolerance'])o[k]=Number(fd.get(k));for(const [k,lo,hi] of [['brightness',-60,60],['contrast',.5,2],['threshold',5,100],['modelThreshold',.1,50],['minimum',5,2000],['tolerance',0,15]])if(!Number.isFinite(o[k])||o[k]<lo||o[k]>hi)throw Error(k+' 입력 범위를 확인하세요.');o.detector=$('detector').value;o.refine=o.detector==='unet'&&$('refine').checked;o.guide=$('crackRegion').value!=='all';o.guideScope=$('crackRegion').value==='segment'?'segment':'extended';o.guideWidth=Number($('guideWidth').value);if(!Number.isFinite(o.guideWidth)||o.guideWidth<3||o.guideWidth>80)throw Error('주변 반폭은 3~80px 범위로 입력하세요.');const data=await cvAnalyze(cv,photoData('reference'),photoData('current'),o,isManual()?structuredClone(points):null,image=>UnetSegmentation.segment(image,message=>status(message)));data.metadata={};for(const k of ['reference_date','current_date','location','sample'])data.metadata[k]=fd.get(k);data.metadata.reference_file=files.reference.name;data.metadata.current_file=files.current.name;for(const [k,v] of Object.entries(data.images)){const c=document.createElement('canvas');c.width=v.width;c.height=v.height;c.getContext('2d').putImageData(new ImageData(v.data,v.width,v.height),0,0);data.images[k]=c.toDataURL('image/png');}if(version!==revision){status('분석 중 입력이 변경되었습니다. 다시 실행하세요.','stale');return}result=data;display();status('분석 완료. 특징점 대응과 검출 영역을 함께 확인하세요.')}catch(e){status(e.message,'error')}finally{busy=false;$('analyze').disabled=loadingExample;$('realSample').disabled=loadingExample}};
 function download(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
 $('downloadPng').onclick=async()=>{if(result)download(await(await fetch(result.images[activeView])).blob(),'crack-'+activeView+'.png')};$('downloadJson').onclick=()=>{if(result){const {images,...record}=result;download(new Blob([JSON.stringify(record,null,2)],{type:'application/json'}),'crack-analysis.json')}};$('downloadCsv').onclick=()=>{if(result)download(new Blob(['\ufeff측정항목,값\n'+Object.entries(result.metrics).map(([k,v])=>`${k},${v}`).join('\n')],{type:'text/csv;charset=utf-8'}),'crack-measurements.csv')};
 

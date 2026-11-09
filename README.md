@@ -4,6 +4,10 @@
 
 게시 주소: https://qkimshic.github.io/concrete-crack-lab/
 
+## 실제 사진 예제
+
+‘실제 균열 사진 불러오기’는 촬영 사진 두 장과 수동 대응점 9쌍을 입력하고 오검출 억제 설정을 적용한다. 촬영 날짜와 위치는 사용자가 입력한다. 원본 화소와 이미지 크기를 유지하고 메타데이터를 제거한 공개 사진을 사용한다.
+
 ## 균열 분할
 
 기본 검출은 samir-mohamed/concrete-crack-segmentation의 Improved U-Net이다.

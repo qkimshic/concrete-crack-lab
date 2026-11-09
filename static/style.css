@@ -5,3 +5,5 @@
 .manual-buttons{display:flex;flex-wrap:wrap;gap:6px}.manual-buttons button{font-size:12px}.manual-buttons button:disabled{opacity:.5}
 
 label.checkbox{display:flex;align-items:center;gap:6px}input[type=checkbox]{display:inline-block;width:auto;margin:0;accent-color:#111}
+
+.sample button{width:100%}
