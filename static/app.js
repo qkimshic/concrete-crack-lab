@@ -79,7 +79,12 @@ $('realSample').onclick=async()=>{
   for(const {item,file,image} of prepared){
    files[item.key]=file;photos[item.key]=image;
    points[item.key]=item.points.map(([x,y])=>[x/item.width,y/item.height]);
-   $(item.key).value='';
+   const input=$(item.key);
+   try {
+    const selection=new DataTransfer();
+    selection.items.add(file);
+    input.files=selection.files;
+   } catch {input.value='';}
    $(item.key==='reference'?'refName':'curName').textContent=`${file.name} · ${image.naturalWidth} × ${image.naturalHeight}px · ${file.type} · ${(file.size/1024/1024).toFixed(2)}MB`;
   }
   $('reference_date').value='';$('current_date').value='';$('location').value='';
