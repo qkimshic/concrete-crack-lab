@@ -10,7 +10,24 @@ function updatePointStatus(){const n=pointLimit();$('pointStatus').textContent=`
 function status(t,cls=''){$('status').textContent=t;$('status').className=cls;}
 function invalidate(){revision++;if(result){result=null;$('result').hidden=true;$('empty').hidden=false;status('입력 또는 조정값이 변경되었습니다. 다시 분석하세요.','stale');}}
 function render(key){const c=$(canvasIds[key]),im=photos[key];if(!im)return;c.width=im.naturalWidth;c.height=im.naturalHeight;const ctx=c.getContext('2d');ctx.drawImage(im,0,0);const size=Math.max(4,Math.min(c.width,c.height)/85);points[key].forEach((p,i)=>{ctx.fillStyle='#b74c2d';ctx.beginPath();ctx.arc(p[0]*c.width,p[1]*c.height,size,0,7);ctx.fill();ctx.fillStyle='white';ctx.font=`bold ${size*1.2}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(i+1,p[0]*c.width,p[1]*c.height)});drawMicroRegion(ctx,key,c.width,c.height);c.style.display='block';updatePointStatus();updateRoiStatus();}
-async function load(key,file){if(!file)return;if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>10485760){status('JPG, PNG, WEBP 형식의 10MB 이하 사진을 사용하세요.','error');return}photoRevision++;const request=++photoRequests[key];invalidate();const url=URL.createObjectURL(file),im=new Image();try{await new Promise((ok,no)=>{im.onload=ok;im.onerror=no;im.src=url});if(request!==photoRequests[key])return;files[key]=file;photos[key]=im;points[key]=[];microRegions[key]=null;regionStarts[key]=null;if(sample){sample='';$('reference_date').value='';$('current_date').value='';$('location').value='';}invalidate();$(key==='reference'?'refName':'curName').textContent=`${file.name} · ${im.naturalWidth} × ${im.naturalHeight}px · ${file.type} · ${(file.size/1024/1024).toFixed(2)}MB`;render(key);if(!result)status('사진 입력 완료. 조정값을 확인하고 분석하세요.');}catch{if(request===photoRequests[key])status('이미지를 읽을 수 없습니다.','error')}finally{URL.revokeObjectURL(url)}}
+function syncFileSelection(key,file){
+ const input=$(key);
+ try{
+  if(!file){input.value='';return true;}
+  const selection=new DataTransfer();selection.items.add(file);input.files=selection.files;
+  if(input.files.length===1&&input.files[0].name===file.name&&input.files[0].size===file.size)return true;
+ }catch{}
+ if(file&&input.files?.length===1&&input.files[0].name===file.name&&input.files[0].size===file.size)return true;
+ input.value='';return false;
+}
+function rejectFileSelection(key){
+ if(syncFileSelection(key,files[key]))return;
+ delete files[key];delete photos[key];points[key]=[];microRegions[key]=null;regionStarts[key]=null;sample='';
+ $(canvasIds[key]).style.display='none';
+ $(key==='reference'?'refName':'curName').textContent=key==='reference'?'사진을 선택하거나 여기에 놓으세요':'JPG · PNG · WEBP / 각 10MB 이하';
+ invalidate();updatePointStatus();updateRoiStatus();
+}
+async function load(key,file){if(!file)return;photoRevision++;const request=++photoRequests[key];if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>10485760){rejectFileSelection(key);status('JPG, PNG, WEBP 형식의 10MB 이하 사진을 사용하세요.','error');return}invalidate();const url=URL.createObjectURL(file),im=new Image();try{await new Promise((ok,no)=>{im.onload=ok;im.onerror=no;im.src=url});if(request!==photoRequests[key])return;files[key]=file;photos[key]=im;syncFileSelection(key,file);points[key]=[];microRegions[key]=null;regionStarts[key]=null;if(sample){sample='';$('reference_date').value='';$('current_date').value='';$('location').value='';}invalidate();$(key==='reference'?'refName':'curName').textContent=`${file.name} · ${im.naturalWidth} × ${im.naturalHeight}px · ${file.type} · ${(file.size/1024/1024).toFixed(2)}MB`;render(key);if(!result)status('사진 입력 완료. 조정값을 확인하고 분석하세요.');}catch{if(request===photoRequests[key]){rejectFileSelection(key);status('이미지를 읽을 수 없습니다.','error')}}finally{URL.revokeObjectURL(url)}}
 for(const key of ['reference','current']){$(key).onchange=e=>load(key,e.target.files[0]);const area=$(key).closest('.upload');area.ondragover=e=>{e.preventDefault();area.classList.add('drag')};area.ondragleave=()=>area.classList.remove('drag');area.ondrop=e=>{e.preventDefault();area.classList.remove('drag');load(key,e.dataTransfer.files[0])};$(canvasIds[key]).onclick=e=>{if($('photoAction').value==='micro'){selectMicroRegion(key,e);return}if(!isManual()||points[key].length>=pointLimit())return;const r=e.target.getBoundingClientRect();points[key].push([(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height]);invalidate();render(key)}}
 for(const id of ['brightness','contrast','threshold','modelThreshold']){$(id).oninput=()=>{$(id+'Val').textContent=$(id).value;invalidate()}}
 for(const id of ['minimum','tolerance','guideWidth','crackRegion','reference_date','current_date','location'])$(id).oninput=invalidate;
