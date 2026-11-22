@@ -125,7 +125,7 @@ async function cvAnalyze(cv,refData,curData,o,manual,modelSegment,fine={}){
   cv.bitwise_and(valid,regions[0],valid);cv.bitwise_and(valid,mappedRegion,valid);
  }
  const analysisArea=cv.countNonZero(valid);if(analysisArea<10)throw Error('두 사진의 지정 구간이 충분히 겹치지 않습니다. 대응점과 주변 폭을 확인하세요.');
- const mappedB=mat(),a=mat(),b=mat(),da=mat(),db=mat(),tol=own(cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(2*o.tolerance+1,2*o.tolerance+1)));
+ const mappedB=mat(),a=mat(),b=mat();
  cv.warpPerspective(baseB,mappedB,H,new cv.Size(w,h),cv.INTER_NEAREST);
  const mappedBase=mat();mappedB.copyTo(mappedBase);
  const mappedDetail=own(new cv.Mat.zeros(h,w,cv.CV_8UC1));
@@ -136,17 +136,61 @@ async function cvAnalyze(cv,refData,curData,o,manual,modelSegment,fine={}){
   }
   cv.bitwise_or(mappedB,mappedDetail,mappedB);
  }
- cv.bitwise_and(fullA,valid,a);cv.bitwise_and(mappedB,valid,b);cv.dilate(a,da,tol);cv.dilate(b,db,tol);
- let newly=0,lost=0;const overlay=mat();cv.addWeighted(ref,.5,aligned,.5,0,overlay);
- for(let i=0;i<w*h;i++){let color=null;if(a.data[i]||b.data[i])color=[40,160,170];if(b.data[i]&&!da.data[i]){newly++;color=[235,75,60]}if(a.data[i]&&!db.data[i]){lost++;color=[35,140,230]}for(let c=0;c<3;c++)overlay.data[4*i+c]=valid.data[i]?(color?color[c]:overlay.data[4*i+c]):overlay.data[4*i+c]*.25;overlay.data[4*i+3]=255;}
- // Zhang–Suen 세선화 후 중심선 연결 길이.
- function length(m){let s=Uint8Array.from(m.data,x=>x?1:0),remove=[],changed=true,loops=0;while(changed&&loops++<100){changed=false;for(let pass=0;pass<2;pass++){remove=[];for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){let i=y*w+x;if(!s[i])continue;let p=[s[i-w],s[i-w+1],s[i+1],s[i+w+1],s[i+w],s[i+w-1],s[i-1],s[i-w-1]],n=p.reduce((a,b)=>a+b,0),t=0;for(let k=0;k<8;k++)if(!p[k]&&p[(k+1)%8])t++;if(n<2||n>6||t!==1)continue;if(pass===0?(p[0]*p[2]*p[4]||p[2]*p[4]*p[6]):(p[0]*p[2]*p[6]||p[0]*p[4]*p[6]))continue;remove.push(i)}if(remove.length)changed=true;for(const i of remove)s[i]=0;}}
- let l=0;for(let y=0;y<h;y++)for(let x=0;x<w;x++){let i=y*w+x;if(!s[i])continue;if(x+1<w&&s[i+1])l++;if(y+1<h&&s[i+w])l++;if(x+1<w&&y+1<h&&s[i+w+1]&&!s[i+1]&&!s[i+w])l+=Math.SQRT2;if(x>0&&y+1<h&&s[i+w-1]&&!s[i-1]&&!s[i+w])l+=Math.SQRT2;}return Math.round(l*100)/100;}
- let ma=cv.countNonZero(a),mb=cv.countNonZero(b),la=length(a),lb=length(b);const metrics={reference_area_px2:ma,current_area_px2:mb,area_delta_px2:mb-ma,new_candidate_area_px2:newly,missing_candidate_area_px2:lost,reference_length_px:la,current_length_px:lb,length_delta_px:Math.round((lb-la)*100)/100,area_change_percent:ma?100*(mb-ma)/ma:null,length_change_percent:la?100*(lb-la)/la:null};
+ cv.bitwise_and(fullA,valid,a);
+ cv.bitwise_and(mappedB,valid,b);
+ const centerA=thinCrackMask(a.data,w,h);
+ const centerB=thinCrackMask(b.data,w,h);
+ const ma=cv.countNonZero(a),mb=cv.countNonZero(b);
+ const la=roundPixels(crackLineLength(centerA,w,h)),lb=roundPixels(crackLineLength(centerB,w,h));
+
+ const residual90=errors[Math.ceil(errors.length*.9)-1];
+ const holdReason=manualSimilarity?'similarity_only'
+  :errors.length<5?'few_correspondences'
+  :!Number.isFinite(residual90)||residual90>4?'registration_error'
+  :!ma||!mb?'missing_baseline':'';
+ // Registration residuals come from the fitted points, so the tolerance is a
+ // conservative screening rule, not a measured uncertainty bound on the surface.
+ const tolerance=holdReason?null:Math.max(Math.ceil(o.tolerance),Math.ceil(residual90+1));
+ const minimumRun=tolerance===null?null:Math.max(8,2*tolerance);
+ let newLine=null,missingLine=null;
+ let nearA,nearB;
+ if(!holdReason){
+  const kernel=own(cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(2*tolerance+1,2*tolerance+1)));
+  nearA=mat();nearB=mat();
+  cv.dilate(a,nearA,kernel);cv.dilate(b,nearB,kernel);
+  newLine=screenCrackSegments(centerB,nearA.data,w,h,minimumRun);
+  missingLine=screenCrackSegments(centerA,nearB.data,w,h,minimumRun);
+ }
+ const verdict=holdReason?'withheld':(newLine.length||missingLine.length)?'review':'none_detected';
+ const assessment={status:verdict,reason:holdReason||null,applied_tolerance_px:tolerance,
+  minimum_segment_length_px:minimumRun,registration_residual_p90_px:roundPixels(residual90)};
+ const overlay=mat();
+ cv.addWeighted(ref,.5,aligned,.5,0,overlay);
+ const uncertainColor=[240,193,102], matchedColor=[40,160,170];
+ const newColor=[235,75,60],missingColor=[35,140,230];
+ for(let i=0;i<w*h;i++){
+  const previous=a.data[i]!==0,current=b.data[i]!==0;
+  let color=null;
+  if(previous||current){
+   const matched=!holdReason&&(!previous||nearB.data[i])&&(!current||nearA.data[i]);
+   color=matched?matchedColor:uncertainColor;
+   if(newLine?.pixels[i])color=newColor;
+   if(missingLine?.pixels[i])color=missingColor;
+  }
+  for(let c=0;c<3;c++)overlay.data[4*i+c]=color?color[c]:overlay.data[4*i+c]*(valid.data[i]?1:.25);
+  overlay.data[4*i+3]=255;
+ }
+ const metrics={
+  reference_area_px2:ma,current_area_px2:mb,area_delta_px2:mb-ma,
+  reference_length_px:la,current_length_px:lb,length_delta_px:roundPixels(lb-la),
+  area_change_percent:ma?100*(mb-ma)/ma:null,length_change_percent:la?100*(lb-la)/la:null,
+  new_candidate_length_px:newLine?roundPixels(newLine.length):null,
+  missing_candidate_length_px:missingLine?roundPixels(missingLine.length):null
+ };
  let addedA=0,addedB=0;
  for(let i=0;i<w*h;i++)if(valid.data[i]){if(detailA?.mask.data[i]&&!baseA.data[i])addedA++;if(mappedDetail.data[i]&&!mappedBase.data[i])addedB++;}
  const fineDetail=detailA||detailB?{reference:detailA?.record||null,current:detailB?.record||null,added_common_reference_px2:addedA,added_common_current_px2:addedB,mapping:'source_pixel_forward_raster',measurement:'union_masks_in_reference_common_region'}:null;
- const warnings=[o.detector==='unet'?'U-Net 분할 후보입니다. 가는 균열의 누락과 얼룩·그림자의 오검출을 확인하세요.':'명암 규칙으로 검출한 균열 후보입니다. 얼룩·그림자를 육안 확인하세요.','신규·미검출 후보는 실제 진행·소멸을 확정하지 않습니다. 공통 영역만 비교합니다.'];if(o.guide)warnings.push(fineDetail?'선택한 분석 영역의 공통 부분만 측정합니다.':o.guideScope==='segment'?'첫 대응점과 마지막 대응점 사이의 지정 구간만 분석했습니다. 구간 밖과 주변 폭 밖의 균열은 측정에 포함되지 않습니다.':'대응점 주변에서만 균열 후보를 검출했습니다. 경로 밖 후보는 제외됩니다.');if(manualSimilarity)warnings.push('간단 정렬은 이동·회전·크기만 보정합니다. 원근 차이와 대응점 선택에 따른 오차를 확인하세요.');else if(manual)warnings.push('수동 대응점은 독립적인 정렬 정확도 검증이 아닙니다.');
+ const warnings=[o.detector==='unet'?'U-Net 분할 후보입니다. 가는 균열의 누락과 얼룩·그림자의 오검출을 확인하세요.':'명암 규칙으로 검출한 균열 후보입니다. 얼룩·그림자를 육안 확인하세요.','조명, 해상도 및 촬영 위치에 따라 검출 차이가 생길 수 있습니다.'];if(o.guide)warnings.push(fineDetail?'선택한 분석 영역의 공통 부분만 측정합니다.':o.guideScope==='segment'?'첫 대응점과 마지막 대응점 사이의 지정 구간만 분석했습니다. 구간 밖과 주변 폭 밖의 균열은 측정에 포함되지 않습니다.':'대응점 주변에서만 균열 후보를 검출했습니다. 경로 밖 후보는 제외됩니다.');if(manualSimilarity)warnings.push('간단 정렬은 이동·회전·크기만 보정합니다. 원근 차이와 대응점 선택에 따른 오차를 확인하세요.');else if(manual)warnings.push('수동 대응점은 독립적인 정렬 정확도 검증이 아닙니다.');
  const vis=own(new cv.Mat(Math.max(h,cur.rows),w+cur.cols,cv.CV_8UC4,new cv.Scalar(230,230,230,255))),roi1=own(vis.roi(new cv.Rect(0,0,w,h))),roi2=own(vis.roi(new cv.Rect(w,0,cur.cols,cur.rows)));ref.copyTo(roi1);cur.copyTo(roi2);
  let shown=0;for(let i=0;i<p.length&&shown<60;i++){
   if(!manual&&!flags[i])continue;shown++;const color=flags[i]?new cv.Scalar(65,200,105,255):new cv.Scalar(220,60,50,255);
@@ -158,7 +202,87 @@ async function cvAnalyze(cv,refData,curData,o,manual,modelSegment,fine={}){
  function contours(mask,image){const curves=own(new cv.MatVector()),hier=mat(),copy=mat();mask.copyTo(copy);cv.findContours(copy,curves,hier,cv.RETR_LIST,cv.CHAIN_APPROX_SIMPLE);cv.drawContours(image,curves,-1,new cv.Scalar(230,75,35,255),1);}
  contours(fullA,refContour);contours(fullB,curContour);
  function pixels(m){let rgba=m;if(m.channels()!==4){rgba=mat();cv.cvtColor(m,rgba,cv.COLOR_GRAY2RGBA)}return {width:rgba.cols,height:rgba.rows,data:new Uint8ClampedArray(rgba.data)}}
- return {segmentation:{method:(o.detector==='unet'?(o.refine?'U-Net + 명암 보완':'U-Net'):'명암 기반')+(fineDetail?' + 가는 균열':''),fine_detail:fineDetail,postprocessing:o.detector==='unet'&&!o.refine?'model_threshold':'bilateral_ridge_hysteresis_v1',model:modelInfo},comparison:{fine_regions_included:!!fineDetail,scope:o.guide?(o.guideScope||'extended'):'all',analysis_area_px2:analysisArea,analysis_area_ratio:analysisArea/(w*h)},registration:{method:manual?(manualSimilarity?`수동 간단 정렬 (${matches}쌍)`:`수동 원근 정렬 (${matches}쌍)`):'ORB + RANSAC',manual:!!manual,matches,inliers:errors.length,inlier_ratio:errors.length/matches,median_error_px:median,overlap_ratio:overlap},metrics,warnings,parameters:o,homography_current_to_reference:[hm.slice(0,3),hm.slice(3,6),hm.slice(6)],processing_size:{reference:[w,h],current:[cur.cols,cur.rows]},images:{reference:pixels(ref),reference_contour:pixels(refContour),current_contour:pixels(curContour),reference_preprocessed:pixels(processed[0]),current_preprocessed:pixels(processed[1]),aligned:pixels(aligned),overlay:pixels(overlay),matches:pixels(vis),current_mask:pixels(fullB),reference_mask:pixels(fullA)}};
+ return {segmentation:{method:(o.detector==='unet'?(o.refine?'U-Net + 명암 보완':'U-Net'):'명암 기반')+(fineDetail?' + 가는 균열':''),fine_detail:fineDetail,postprocessing:o.detector==='unet'&&!o.refine?'model_threshold':'bilateral_ridge_hysteresis_v1',model:modelInfo},comparison:{assessment,fine_regions_included:!!fineDetail,scope:o.guide?(o.guideScope||'extended'):'all',analysis_area_px2:analysisArea,analysis_area_ratio:analysisArea/(w*h)},registration:{method:manual?(manualSimilarity?`수동 간단 정렬 (${matches}쌍)`:`수동 원근 정렬 (${matches}쌍)`):'ORB + RANSAC',manual:!!manual,matches,inliers:errors.length,inlier_ratio:errors.length/matches,median_error_px:median,overlap_ratio:overlap},metrics,warnings,parameters:o,homography_current_to_reference:[hm.slice(0,3),hm.slice(3,6),hm.slice(6)],processing_size:{reference:[w,h],current:[cur.cols,cur.rows]},images:{reference:pixels(ref),reference_contour:pixels(refContour),current_contour:pixels(curContour),reference_preprocessed:pixels(processed[0]),current_preprocessed:pixels(processed[1]),aligned:pixels(aligned),overlay:pixels(overlay),matches:pixels(vis),current_mask:pixels(fullB),reference_mask:pixels(fullA)}};
  }finally{for(let i=allocated.length-1;i>=0;i--)allocated[i].delete();}
 }
+function roundPixels(value){
+ return Number.isFinite(value)?Math.round(value*100)/100:null;
+}
+
+function thinCrackMask(mask,width,height){
+ const pixels=Uint8Array.from(mask,value=>value?1:0);
+ let changed=true;
+ for(let iteration=0;changed&&iteration<100;iteration++){
+  changed=false;
+  for(let pass=0;pass<2;pass++){
+   const remove=[];
+   for(let y=1;y<height-1;y++)for(let x=1;x<width-1;x++){
+    const i=y*width+x;
+    if(!pixels[i])continue;
+    const n=[pixels[i-width],pixels[i-width+1],pixels[i+1],pixels[i+width+1],
+     pixels[i+width],pixels[i+width-1],pixels[i-1],pixels[i-width-1]];
+    const count=n.reduce((sum,value)=>sum+value,0);
+    if(count<2||count>6)continue;
+    let transitions=0;
+    for(let k=0;k<8;k++)if(!n[k]&&n[(k+1)%8])transitions++;
+    if(transitions!==1)continue;
+    if(pass===0?(n[0]*n[2]*n[4]||n[2]*n[4]*n[6]):(n[0]*n[2]*n[6]||n[0]*n[4]*n[6]))continue;
+    remove.push(i);
+   }
+   if(remove.length)changed=true;
+   for(const i of remove)pixels[i]=0;
+  }
+ }
+ return pixels;
+}
+
+// Sum each horizontal, vertical or diagonal link once, avoiding corner shortcuts.
+function forwardLineLinks(pixels,i,x,y,width,height){
+ const right=x+1<width&&pixels[i+1],down=y+1<height&&pixels[i+width];
+ let length=(right?1:0)+(down?1:0);
+ if(y+1<height&&!down){
+  if(x+1<width&&!right&&pixels[i+width+1])length+=Math.SQRT2;
+  if(x>0&&!pixels[i-1]&&pixels[i+width-1])length+=Math.SQRT2;
+ }
+ return length;
+}
+
+function crackLineLength(pixels,width,height){
+ let total=0;
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+  const i=y*width+x;
+  if(pixels[i])total+=forwardLineLinks(pixels,i,x,y,width,height);
+ }
+ return total;
+}
+
+function screenCrackSegments(centerline,oppositeNeighborhood,width,height,minimumLength){
+ const remaining=Uint8Array.from(centerline,(value,i)=>value&&!oppositeNeighborhood[i]?1:0);
+ const visited=new Uint8Array(remaining.length);
+ const pixels=new Uint8Array(remaining.length);
+ let length=0;
+ for(let start=0;start<remaining.length;start++){
+  if(!remaining[start]||visited[start])continue;
+  const component=[start];
+  visited[start]=1;
+  let componentLength=0;
+  for(let k=0;k<component.length;k++){
+   const i=component[k],x=i%width,y=Math.floor(i/width);
+   componentLength+=forwardLineLinks(remaining,i,x,y,width,height);
+   for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+    const xx=x+dx,yy=y+dy;
+    if(xx<0||xx>=width||yy<0||yy>=height)continue;
+    const next=yy*width+xx;
+    if(!remaining[next]||visited[next])continue;
+    visited[next]=1;
+    component.push(next);
+   }
+  }
+  if(componentLength<minimumLength)continue;
+  for(const i of component)pixels[i]=1;
+  length+=componentLength;
+ }
+ return {length,pixels};
+}
+
 if(typeof module!=='undefined')module.exports=cvAnalyze;

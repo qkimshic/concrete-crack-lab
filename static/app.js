@@ -113,14 +113,61 @@ $('realSample').onclick=async()=>{
  finally{loadingExample=false;$('realSample').disabled=false;$('analyze').disabled=busy;}
 };
 function metric(label,value,unit){const box=document.createElement('div');box.className='stat';for(const [tag,t] of [['small',label],['strong',value],['em',unit]]){const a=document.createElement(tag);a.textContent=t;box.append(a)}return box}
-function showView(view){if(!result)return;const scope=result.segmentation.fine_detail?'분석 영역':result.comparison?.scope==='segment'?'지정 구간':result.parameters.guide?'대응점 주변':'사진 전체';activeView=view;$('resultLegend').hidden=view!=='overlay';$('viewExplanation').textContent=({overlay:'어두운 영역: 공통 분석 범위 밖 · 미검출은 균열 소멸을 뜻하지 않습니다.',reference_contour:`이전 ${scope}의 균열 후보 윤곽선입니다. 변화 비교는 공통 영역만 사용합니다.`,current_contour:`현재 ${scope}의 균열 후보 윤곽선입니다. 변화 비교는 공통 영역만 사용합니다.`,reference_preprocessed:result.segmentation.method.startsWith('U-Net')?'이전 사진의 U-Net 입력 RGB 영상입니다. (256×256px)':'기준 사진의 잡음 제거·국부 명암 보정 결과입니다.',current_preprocessed:result.segmentation.method.startsWith('U-Net')?'현재 사진의 U-Net 입력 RGB 영상입니다. (256×256px)':'현재 사진의 잡음 제거·국부 명암 보정 결과입니다.',matches:result.registration.manual?'같은 번호가 같은 지점입니다. 초록색은 사용, 빨간색은 제외된 점입니다.':'두 사진의 대응점 중 RANSAC으로 선택한 내점을 최대 60쌍 표시합니다.',aligned:'현재 사진을 기준 사진의 좌표계로 정렬했습니다.',current_mask:`현재 ${scope}의 균열 후보입니다. 흰색은 후보 픽셀입니다.`,reference_mask:`이전 ${scope}의 균열 후보입니다. 흰색은 후보 픽셀입니다.`})[view]||'';$('resultImage').src=result.images[view];$('imageLink').href=result.images[view];document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view))}
+function showView(view){if(!result)return;const scope=result.segmentation.fine_detail?'분석 영역':result.comparison?.scope==='segment'?'지정 구간':result.parameters.guide?'대응점 주변':'사진 전체';activeView=view;$('resultLegend').hidden=view!=='overlay';$('viewExplanation').textContent=({overlay:result.comparison.assessment.status==='withheld'?'노란색: 판정 제외 · 어두운 영역: 분석 범위 밖':'어두운 영역: 공통 분석 범위 밖',reference_contour:`이전 ${scope}의 균열 후보 윤곽선입니다. 변화 비교는 공통 영역만 사용합니다.`,current_contour:`현재 ${scope}의 균열 후보 윤곽선입니다. 변화 비교는 공통 영역만 사용합니다.`,reference_preprocessed:result.segmentation.method.startsWith('U-Net')?'이전 사진의 U-Net 입력 RGB 영상입니다. (256×256px)':'기준 사진의 잡음 제거·국부 명암 보정 결과입니다.',current_preprocessed:result.segmentation.method.startsWith('U-Net')?'현재 사진의 U-Net 입력 RGB 영상입니다. (256×256px)':'현재 사진의 잡음 제거·국부 명암 보정 결과입니다.',matches:result.registration.manual?'같은 번호가 같은 지점입니다. 초록색은 사용, 빨간색은 제외된 점입니다.':'두 사진의 대응점 중 RANSAC으로 선택한 내점을 최대 60쌍 표시합니다.',aligned:'현재 사진을 기준 사진의 좌표계로 정렬했습니다.',current_mask:`현재 ${scope}의 균열 후보입니다. 흰색은 후보 픽셀입니다.`,reference_mask:`이전 ${scope}의 균열 후보입니다. 흰색은 후보 픽셀입니다.`})[view]||'';$('resultImage').src=result.images[view];$('imageLink').href=result.images[view];document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view))}
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));
-function display(){const r=result.registration,m=result.metrics;$('empty').hidden=true;$('result').hidden=false;$('quality').textContent=r.manual?`${r.method} · 사용 ${r.inliers}/${r.matches}쌍`:`${r.method} · 내점 ${r.inliers}/${r.matches}`;$('quality').textContent=result.segmentation.method+' · '+$('quality').textContent;$('overlap').textContent=`공통 영역 ${(r.overlap_ratio*100).toFixed(1)}%`;$('scopeSummary').hidden=!result.parameters.guide;$('scopeSummary').textContent=(result.segmentation.fine_detail?'가는 균열 포함':result.comparison.scope==='segment'?'지정 구간':'대응점 주변')+' · 공통 분석 '+result.comparison.analysis_area_px2.toLocaleString()+'px²';$('stats').replaceChildren(metric('신규 변화 후보',m.new_candidate_area_px2.toLocaleString(),'px² · 허용 거리 밖'),metric('미검출 후보',m.missing_candidate_area_px2.toLocaleString(),'px² · 소멸 판정 아님'),metric('정렬 잔차 중앙값',r.median_error_px===null?'—':r.median_error_px.toFixed(2),'px · 대응점 기준'));
-const rows=[['후보 면적 (px²)',m.reference_area_px2,m.current_area_px2,m.area_delta_px2],['중심선 길이 (px)',m.reference_length_px,m.current_length_px,m.length_delta_px]];$('measurements').replaceChildren(...rows.map(row=>{let tr=document.createElement('tr');row.forEach(v=>{let td=document.createElement('td');td.textContent=typeof v==='number'?v.toLocaleString(undefined,{maximumFractionDigits:3}):v;tr.append(td)});return tr}));$('warnings').replaceChildren(...result.warnings.map(t=>{const p=document.createElement('p');p.textContent=t;return p}));$('meta').textContent=`${result.metadata.location||'위치 미입력'} · ${result.metadata.reference_date||'날짜 미입력'} → ${result.metadata.current_date||'날짜 미입력'} · 기준 처리 크기 ${result.processing_size.reference.join(' × ')}px${result.metadata.sample?' · '+result.metadata.sample:''}`;const delta=(v,unit)=>`${v>0?'+':''}${v.toLocaleString(undefined,{maximumFractionDigits:2})}${unit}`;$('changeSummary').textContent=`공통 영역의 후보 면적 변화 ${delta(m.area_delta_px2,'px²')}, 중심선 길이 변화 ${delta(m.length_delta_px,'px')}. 이는 검출값의 변화이며 실제 균열 진행을 확정하지 않습니다.`;showView('overlay')}
+function display(){
+ const {registration:r,metrics:m,comparison,metadata}=result;
+ const assessment=comparison.assessment;
+ $('empty').hidden=true;
+ $('result').hidden=false;
+ const matches=r.manual?`사용 ${r.inliers}/${r.matches}쌍`:`내점 ${r.inliers}/${r.matches}`;
+ $('quality').textContent=`${result.segmentation.method} · ${r.method} · ${matches}`;
+ $('overlap').textContent=`사진 겹침 ${(r.overlap_ratio*100).toFixed(1)}%`;
+ $('scopeSummary').hidden=!result.parameters.guide;
+ const scope=result.segmentation.fine_detail?'가는 균열 포함':comparison.scope==='segment'?'지정 구간':'대응점 주변';
+ $('scopeSummary').textContent=`${scope} · 공통 분석 ${comparison.analysis_area_px2.toLocaleString()}px²`;
+
+ const reasonLabels={
+  similarity_only:'원근 정렬 필요',
+  few_correspondences:'유효 대응점 부족',
+  registration_error:'정렬 잔차 큼',
+  missing_baseline:'한쪽 이상에서 균열 후보 미검출'
+ };
+ const decision=assessment.status==='withheld'
+  ?`변화 판단 보류 · ${reasonLabels[assessment.reason]}`
+  :`${assessment.status==='review'?'변화 후보 확인 필요':'허용 범위 밖 변화 후보 없음'} · 허용 거리 ${assessment.applied_tolerance_px}px · 최소 구간 ${assessment.minimum_segment_length_px}px`;
+ $('changeSummary').textContent=decision;
+ const number=value=>value===null?'—':value.toLocaleString(undefined,{maximumFractionDigits:2});
+ $('stats').replaceChildren(
+  metric('신규 후보 길이',number(m.new_candidate_length_px),'px'),
+  metric('미검출 후보 길이',number(m.missing_candidate_length_px),'px'),
+  metric('정렬 잔차 중앙값',r.median_error_px===null?'—':r.median_error_px.toFixed(2),'px · 대응점 기준')
+ );
+ const rows=[
+  ['후보 면적 (px²)',m.reference_area_px2,m.current_area_px2,m.area_delta_px2],
+  ['중심선 길이 (px)',m.reference_length_px,m.current_length_px,m.length_delta_px]
+ ];
+ $('measurements').replaceChildren(...rows.map(row=>{
+  const tr=document.createElement('tr');
+  row.forEach((value,i)=>{
+   const td=document.createElement('td');
+   td.textContent=i===0?value:i===3&&assessment.status==='withheld'?'—':`${i===3&&value>0?'+':''}${number(value)}`;
+   tr.append(td);
+  });
+  return tr;
+ }));
+ $('warnings').replaceChildren(...result.warnings.map(text=>{
+  const p=document.createElement('p');
+  p.textContent=text;
+  return p;
+ }));
+ $('meta').textContent=`${metadata.location||'위치 미입력'} · ${metadata.reference_date||'날짜 미입력'} → ${metadata.current_date||'날짜 미입력'} · 기준 처리 크기 ${result.processing_size.reference.join(' × ')}px${metadata.sample?' · '+metadata.sample:''}`;
+ showView('overlay');
+}
 $('analyze').onclick=async()=>{if(busy||loadingExample)return;if(!files.reference||!files.current){status('이전 사진과 현재 사진을 모두 입력하세요.','error');return}if(isManual()&&(points.reference.length<2||points.reference.length!==points.current.length)){status('각 사진에 같은 수의 대응점을 2~10쌍 지정하세요.','error');return}if($('crackRegion').value!=='all'&&!isManual()){status('구간 분석은 수동 대응점을 지정한 뒤 실행하세요.','error');return}if($('reference_date').value&&$('current_date').value&&$('current_date').value<$('reference_date').value){status('현재 촬영 날짜는 이전 촬영 날짜보다 빠를 수 없습니다.','error');return}
 const fd=new FormData();for(const k of ['reference','current'])fd.append(k,files[k]);for(const k of ['brightness','contrast','threshold','modelThreshold','minimum','tolerance','reference_date','current_date','location'])fd.append(k,$(k).value);fd.append('sample',sample);if(isManual())fd.append('manual',JSON.stringify(points));const version=revision;busy=true;$('analyze').disabled=true;$('realSample').disabled=true;result=null;$('result').hidden=true;$('empty').hidden=false;status('특징점 정렬 및 균열 후보를 분석하는 중…');try{if(!window.cv||!cv.Mat)throw Error('분석 엔진을 불러오는 중입니다. 잠시 후 다시 실행하세요.'); await new Promise(r=>setTimeout(r,80)); const o={};for(const k of ['brightness','contrast','threshold','modelThreshold','minimum','tolerance'])o[k]=Number(fd.get(k));for(const [k,lo,hi] of [['brightness',-60,60],['contrast',.5,2],['threshold',5,100],['modelThreshold',.1,50],['minimum',5,2000],['tolerance',0,15]])if(!Number.isFinite(o[k])||o[k]<lo||o[k]>hi)throw Error(k+' 입력 범위를 확인하세요.');o.detector=$('detector').value;o.refine=o.detector==='unet'&&$('refine').checked;o.guide=$('crackRegion').value!=='all';o.guideScope=$('crackRegion').value==='segment'?'segment':'extended';o.guideWidth=Number($('guideWidth').value);if(!Number.isFinite(o.guideWidth)||o.guideWidth<3||o.guideWidth>80)throw Error('주변 반폭은 3~80px 범위로 입력하세요.');o.fineEnabled=$('includeFine').checked;const fine={};if(o.fineEnabled){const fineOptions={threshold:Number($('microThreshold').value),minLength:Number($('microMinimum').value),direction:$('microDirection').value,longest:$('microLongest').checked};for(const key of ['reference','current'])if(microRegions[key]){const detail=MicroCracks.analyze(nativePhotoData(key),structuredClone(microRegions[key]),fineOptions);fine[key]={roi:detail.roi,native_size:detail.native_size,parameters:detail.parameters,metrics:detail.metrics,mask:detail.images.mask};}}const data=await cvAnalyze(cv,photoData('reference'),photoData('current'),o,isManual()?structuredClone(points):null,image=>UnetSegmentation.segment(image,message=>status(message)),fine);data.metadata={};for(const k of ['reference_date','current_date','location','sample'])data.metadata[k]=fd.get(k);data.metadata.reference_file=files.reference.name;data.metadata.current_file=files.current.name;for(const [k,v] of Object.entries(data.images)){const c=document.createElement('canvas');c.width=v.width;c.height=v.height;c.getContext('2d').putImageData(new ImageData(v.data,v.width,v.height),0,0);data.images[k]=c.toDataURL('image/png');}if(version!==revision){status('분석 중 입력이 변경되었습니다. 다시 실행하세요.','stale');return}result=data;display();status('분석 완료. 특징점 대응과 검출 영역을 함께 확인하세요.')}catch(e){status(e.message,'error')}finally{busy=false;$('analyze').disabled=loadingExample;$('realSample').disabled=loadingExample}};
 function download(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
-$('downloadPng').onclick=async()=>{if(result)download(await(await fetch(result.images[activeView])).blob(),'crack-'+activeView+'.png')};$('downloadJson').onclick=()=>{if(result){const {images,...record}=result;download(new Blob([JSON.stringify(record,null,2)],{type:'application/json'}),'crack-analysis.json')}};$('downloadCsv').onclick=()=>{if(result)download(new Blob(['\ufeff측정항목,값\n'+Object.entries(result.metrics).map(([k,v])=>`${k},${v}`).join('\n')],{type:'text/csv;charset=utf-8'}),'crack-measurements.csv')};
+$('downloadPng').onclick=async()=>{if(result)download(await(await fetch(result.images[activeView])).blob(),'crack-'+activeView+'.png')};$('downloadJson').onclick=()=>{if(result){const {images,...record}=result;download(new Blob([JSON.stringify(record,null,2)],{type:'application/json'}),'crack-analysis.json')}};$('downloadCsv').onclick=()=>{if(result)download(new Blob(['\ufeff측정항목,값\n'+Object.entries({...result.metrics,...result.comparison.assessment}).map(([k,v])=>`${k},${v??''}`).join('\n')],{type:'text/csv;charset=utf-8'}),'crack-measurements.csv')};
 
 function photoData(key){const im=photos[key],scale=Math.min(1,1400/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement('canvas');c.width=Math.round(im.naturalWidth*scale);c.height=Math.round(im.naturalHeight*scale);const ctx=c.getContext('2d');ctx.drawImage(im,0,0,c.width,c.height);return ctx.getImageData(0,0,c.width,c.height);}
 
