@@ -1,0 +1,61 @@
+name: Verify crack detection
+on:
+  push:
+    branches: [verify-example-2]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - run: node tests/integrated.test.cjs && node tests/micro.test.cjs
+      - run: npm install --no-save --no-package-lock playwright@1.51.1 && npx playwright install --with-deps chromium
+      - name: Run the page with the second photo pair
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 &
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const {chromium} = require('playwright');
+          (async () => {
+            const browser = await chromium.launch();
+            try {
+              const page = await browser.newPage();
+              page.on('pageerror', error => console.log(error.message));
+              await page.goto('http://127.0.0.1:8765/');
+              await page.waitForFunction(() => typeof cv !== 'undefined' && cv.Mat, {timeout: 30000});
+              await page.getByRole('button', {name: '실제 균열 사진 불러오기 2', exact: true}).click();
+              await page.waitForFunction(() => document.getElementById('detector').value === 'path');
+              await page.getByRole('button', {name: /정렬하고 변화 분석하기/}).click();
+              await page.locator('#result').waitFor({timeout: 30000});
+              const result = await page.locator('#measurements').innerText();
+              const verification = await page.locator('#verificationSummary').innerText();
+              console.log(verification, result, await page.locator('#changeSummary').innerText());
+              assert.match(verification, /통과/);
+              assert.match(await page.locator('#quality').innerText(), /균열 경로/);
+              assert.doesNotMatch(await page.locator('body').innerText(), /제한된 촬영 조건을 위한 학부 프로젝트/);
+              for (const [view, pores, crack] of [
+                ['reference_mask', [[207,117],[375,506],[849,181],[773,290]], [255,239]],
+                ['current_mask', [[451,452],[871,142],[812,242],[489,454]], [548,313]]
+              ]) {
+                await page.locator('[data-view="' + view + '"]').click();
+                const pixels = await page.locator('#resultImage').evaluate(async (image, {pores,crack}) => {
+                  await image.decode();
+                  const c = document.createElement('canvas');
+                  c.width = image.naturalWidth; c.height = image.naturalHeight;
+                  const ctx = c.getContext('2d');
+                  ctx.drawImage(image,0,0);
+                  const near = ([x,y], r) => ctx.getImageData(x-r,y-r,r*2+1,r*2+1).data.some((v,i) => i%4===0 && v>120);
+                  return {pores: pores.map(p => near(p,3)), crack: near(crack,10)};
+                }, {pores,crack});
+                console.log(view, pixels);
+                assert.equal(pixels.crack, true);
+                assert.deepEqual(pixels.pores, [false,false,false,false]);
+              }
+              await page.getByRole('button', {name: '실제 균열 사진 불러오기 1', exact: true}).click();
+              await page.waitForFunction(() => document.getElementById('detector').value === 'unet');
+              assert.equal(await page.locator('#detector option[value="path"]').isDisabled(), true);
+            } finally { await browser.close(); }
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE
