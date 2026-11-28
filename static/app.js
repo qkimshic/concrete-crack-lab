@@ -66,6 +66,7 @@ function syncFileSelection(key,file){
 function clearSampleMetadata(){
  if(!sample)return;
  sample='';
+ updatePathOption(false);
  for(const field of ['reference_date','current_date','location'])$(field).value='';
 }
 function rejectFileSelection(key){
@@ -134,7 +135,23 @@ for(const [id,key] of [['undoCheckReference','reference'],['undoCheckCurrent','c
 }
 for(const id of ['brightness','contrast','threshold','modelThreshold']){$(id).oninput=()=>{$(id+'Val').textContent=$(id).value;invalidate()}}
 for(const id of ['minimum','tolerance','guideWidth','crackRegion','reference_date','current_date','location'])$(id).oninput=invalidate;
-function detectorControls(){$('modelSettings').hidden=$('detector').value!=='unet';$('refineSettings').hidden=$('detector').value!=='unet';$('contrastSettings').hidden=$('detector').value==='unet'&&!$('refine').checked;}
+function updatePathOption(available){
+ const option=$('detector').querySelector('[value="path"]');
+ option.hidden=!available;option.disabled=!available;
+ if(!available&&$('detector').value==='path')$('detector').value='unet';
+ detectorControls();
+}
+function detectorControls(){
+ const usingPath=$('detector').value==='path';
+ $('crackRegion').disabled=usingPath;
+ $('guideWidth').disabled=usingPath;
+ $('fineSettings').hidden=usingPath;
+ if(usingPath)$('crackRegion').value='all';
+ const usingModel=$('detector').value==='unet';
+ $('modelSettings').hidden=!usingModel;
+ $('refineSettings').hidden=!usingModel;
+ $('contrastSettings').hidden=usingModel&&!$('refine').checked;
+}
 $('detector').onchange=()=>{detectorControls();invalidate()};
 $('refine').onchange=()=>{detectorControls();invalidate()};
 $('mode').onchange=()=>{points.reference=[];points.current=[];$('manualHelp').hidden=!isManual();$('manualInstructions').textContent='두 사진의 같은 지점을 같은 순서로 2~10쌍 선택하세요.';renderPhotos();invalidate()};
@@ -188,9 +205,10 @@ async function loadExample(example){
   }
   $('reset').onclick();
   $('mode').value='manual';$('mode').onchange();
+  updatePathOption(example.detector==='path');
   if(example.segment)applyAnalysisPreset(true);
   else{
-   $('detector').value='unet';$('refine').checked=example.refine??true;detectorControls();
+   $('detector').value=example.detector||'unet';$('refine').checked=example.refine??true;detectorControls();
   }
   for(const [id,value] of Object.entries(example.settings||{})){
    $(id).value=value;
@@ -213,7 +231,7 @@ async function loadExample(example){
 }
 for(const [id,example] of Object.entries(samplePairs))$(id).onclick=()=>loadExample(example);
 function metric(label,value,unit){const box=document.createElement('div');box.className='stat';for(const [tag,t] of [['small',label],['strong',value],['em',unit]]){const a=document.createElement(tag);a.textContent=t;box.append(a)}return box}
-function showView(view){if(!result)return;const scope=result.segmentation.fine_detail?'분석 영역':result.comparison?.scope==='segment'?'지정 구간':result.parameters.guide?'대응점 주변':'사진 전체';activeView=view;$('resultLegend').hidden=view!=='overlay';$('viewExplanation').textContent=({overlay:result.comparison.assessment.status==='withheld'?'노란색: 판정 제외 · 어두운 영역: 분석 범위 밖':'어두운 영역: 공통 분석 범위 밖',reference_contour:`이전 ${scope}의 균열 후보 윤곽선입니다. 변화 비교는 공통 영역만 사용합니다.`,current_contour:`현재 ${scope}의 균열 후보 윤곽선입니다. 변화 비교는 공통 영역만 사용합니다.`,reference_preprocessed:result.segmentation.method.startsWith('U-Net')?'이전 사진의 U-Net 입력 RGB 영상입니다. (256×256px)':'기준 사진의 잡음 제거·국부 명암 보정 결과입니다.',current_preprocessed:result.segmentation.method.startsWith('U-Net')?'현재 사진의 U-Net 입력 RGB 영상입니다. (256×256px)':'현재 사진의 잡음 제거·국부 명암 보정 결과입니다.',matches:result.registration.manual?'같은 번호가 같은 지점입니다. 초록색은 사용, 빨간색은 제외된 점입니다.':'두 사진의 대응점 중 RANSAC으로 선택한 내점을 최대 60쌍 표시합니다.',aligned:'현재 사진을 기준 사진의 좌표계로 정렬했습니다.',current_mask:`현재 ${scope}의 균열 후보입니다. 흰색은 후보 픽셀입니다.`,reference_mask:`이전 ${scope}의 균열 후보입니다. 흰색은 후보 픽셀입니다.`})[view]||'';if(view==='matches'&&result.registration.verification.status!=='not_set')$('viewExplanation').textContent+=' 파란색 V1·V2는 정렬 확인점입니다.';$('resultImage').src=result.images[view];$('imageLink').href=result.images[view];document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view))}
+function showView(view){if(!result)return;const scope=result.parameters.detector==='path'?'지정 경로 주변':result.segmentation.fine_detail?'분석 영역':result.comparison?.scope==='segment'?'지정 구간':result.parameters.guide?'대응점 주변':'사진 전체';activeView=view;$('resultLegend').hidden=view!=='overlay';$('viewExplanation').textContent=({overlay:result.comparison.assessment.status==='withheld'?'노란색: 판정 제외 · 어두운 영역: 분석 범위 밖':'어두운 영역: 공통 분석 범위 밖',reference_contour:`이전 ${scope}의 균열 후보 윤곽선입니다. 변화 비교는 공통 영역만 사용합니다.`,current_contour:`현재 ${scope}의 균열 후보 윤곽선입니다. 변화 비교는 공통 영역만 사용합니다.`,reference_preprocessed:result.segmentation.method.startsWith('U-Net')?'이전 사진의 U-Net 입력 RGB 영상입니다. (256×256px)':'기준 사진의 잡음 제거·국부 명암 보정 결과입니다.',current_preprocessed:result.segmentation.method.startsWith('U-Net')?'현재 사진의 U-Net 입력 RGB 영상입니다. (256×256px)':'현재 사진의 잡음 제거·국부 명암 보정 결과입니다.',matches:result.registration.manual?'같은 번호가 같은 지점입니다. 초록색은 사용, 빨간색은 제외된 점입니다.':'두 사진의 대응점 중 RANSAC으로 선택한 내점을 최대 60쌍 표시합니다.',aligned:'현재 사진을 기준 사진의 좌표계로 정렬했습니다.',current_mask:`현재 ${scope}의 균열 후보입니다. 흰색은 후보 픽셀입니다.`,reference_mask:`이전 ${scope}의 균열 후보입니다. 흰색은 후보 픽셀입니다.`})[view]||'';if(view==='matches'&&result.registration.verification.status!=='not_set')$('viewExplanation').textContent+=' 파란색 V1·V2는 정렬 확인점입니다.';$('resultImage').src=result.images[view];$('imageLink').href=result.images[view];document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view))}
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));
 function display(){
  const {registration:r,metrics:m,comparison,metadata}=result;
@@ -292,10 +310,13 @@ function analysisOptions(){
   options[id]=value;
  }
  options.detector=$('detector').value;
+ if(options.detector==='path'){
+  options.crackGuides=Object.fromEntries(samplePairs.realSample2.photos.map(item=>[item.key,item.crackGuide]));
+ }
  options.refine=options.detector==='unet'&&$('refine').checked;
  options.guide=$('crackRegion').value!=='all';
  options.guideScope=$('crackRegion').value==='segment'?'segment':'extended';
- options.fineEnabled=$('includeFine').checked;
+ options.fineEnabled=options.detector!=='path'&&$('includeFine').checked;
  return options;
 }
 function fineAnalysis(){
