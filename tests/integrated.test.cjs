@@ -27,6 +27,25 @@ const ready=async()=>{try{
  const unchanged=await analyze(cv,image,image,full,perspective);
  assert.equal(unchanged.comparison.assessment.status,'none_detected');
  assert.equal(unchanged.metrics.new_candidate_length_px,0);
+ assert.equal(unchanged.registration.verification.status,'not_set');
+ const checkLocations=[[.24,.31],[.71,.53]];
+ const checks={reference:checkLocations,current:checkLocations};
+ const checked=await analyze(cv,image,image,full,perspective,null,{},checks);
+ assert.equal(checked.registration.verification.status,'passed');
+ assert.equal(checked.registration.verification.max_error_px,0);
+ assert.deepEqual(checked.homography_current_to_reference,unchanged.homography_current_to_reference);
+ assert.deepEqual(checked.metrics,unchanged.metrics);
+ const mispaired={reference:checkLocations,current:[[.36,.31],checkLocations[1]]};
+ const failed=await analyze(cv,image,image,full,perspective,null,{},mispaired);
+ assert.equal(failed.registration.verification.reason,'error_exceeded');
+ assert.equal(failed.comparison.assessment.reason,'checkpoint_failed');
+ assert.equal(failed.metrics.new_candidate_length_px,null);
+ assert.deepEqual(failed.homography_current_to_reference,unchanged.homography_current_to_reference);
+ const reused=[controls[0],checkLocations[1]];
+ const reusedFitPoint=await analyze(cv,image,image,full,perspective,null,{}, {reference:reused,current:reused});
+ assert.equal(reusedFitPoint.registration.verification.reason,'reused_fit_point');
+ await assert.rejects(analyze(cv,image,image,full,perspective,null,{}, {reference:checkLocations,current:[]}),/확인점을 각각 두 곳/);
+
  const lineDetail=(top,h)=>{
   const mask=new Uint8ClampedArray(h*4).fill(255);
   return {roi:{x:32,y:top,width:1,height:h},native_size:[64,64],mask:{width:1,height:h,data:mask}};
