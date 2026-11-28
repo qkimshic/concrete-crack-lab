@@ -14,10 +14,12 @@ const samplePairs = {
  realSample2: {
   label: '실제 균열 사진 2',
   location: '콘크리트 보 · 측면',
-  settings: {modelThreshold:.5,minimum:15},
+  settings: {modelThreshold:.1,minimum:5},
+  microLongest: false,
   refine: false,
   photos: [
    {key:'reference',name:'beam-g6-earlier.jpg',width:1000,height:551,
+    roi:{x:190,y:180,width:240,height:360},
     points:[[244,67],[710,109],[943,249],[946,462],[653,510],[387,487],[279,192],[523,304]],
     checkpoints:[[423,264],[829,416]]},
    {key:'current',name:'beam-g6-later.jpg',width:1000,height:496,
