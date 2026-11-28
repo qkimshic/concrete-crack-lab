@@ -81,8 +81,14 @@ async function cvAnalyze(cv,refData,curData,o,manual,modelSegment,fine={},checkp
   const clahe=own(new cv.CLAHE(2,new cv.Size(8,8)));clahe.apply(blur,eq);
   return {ridge:blur,preview:eq};
  }
- async function detect(a,guidePoints){
+ async function detect(a,guidePoints,crackGuide){
  let binary=mat();
+ if(crackGuide){
+  const mask=CrackPaths.detect(pixels(a),crackGuide,o.threshold,o.minimum);
+  binary=own(cv.matFromArray(a.rows,a.cols,cv.CV_8UC1,mask));
+  processed.push(lineInput(a).preview);
+  return binary;
+ }
  if(o.detector==='unet'){
   if(!modelSegment)throw Error('U-Net 모델 실행기를 불러오지 못했습니다.');
   const prediction=await modelSegment(pixels(a));modelInfo=prediction.model;
@@ -111,7 +117,15 @@ async function cvAnalyze(cv,refData,curData,o,manual,modelSegment,fine={},checkp
  // 해상도 차이가 큰 사진도 비슷한 화면 규모에서 검출한 뒤 원래 좌표로 되돌린다.
  const factor=Math.min(2,Math.max(.25,Math.sqrt((w*h)/(cur.cols*cur.rows)))),currentSized=mat();
  cv.resize(currentAdjusted,currentSized,new cv.Size(Math.max(1,Math.round(cur.cols*factor)),Math.max(1,Math.round(cur.rows*factor))),0,0,factor<1?cv.INTER_AREA:cv.INTER_LINEAR);
- const fullA=await detect(ref,manual?.reference),currentSmall=await detect(currentSized,manual?.current),fullB=mat();cv.resize(currentSmall,fullB,new cv.Size(cur.cols,cur.rows),0,0,cv.INTER_NEAREST);
+ const fullA=await detect(ref,manual?.reference,o.crackGuides?.reference);
+ const fullB=mat();
+ if(o.crackGuides){
+  const currentMask=await detect(currentAdjusted,null,o.crackGuides.current);
+  currentMask.copyTo(fullB);
+ }else{
+  const currentSmall=await detect(currentSized,manual?.current);
+  cv.resize(currentSmall,fullB,new cv.Size(cur.cols,cur.rows),0,0,cv.INTER_NEAREST);
+ }
  const baseA=mat(),baseB=mat();fullA.copyTo(baseA);fullB.copyTo(baseB);
  function supplement(detail,width,height){
   if(!detail)return null;
@@ -203,7 +217,7 @@ async function cvAnalyze(cv,refData,curData,o,manual,modelSegment,fine={},checkp
  let addedA=0,addedB=0;
  for(let i=0;i<w*h;i++)if(valid.data[i]){if(detailA?.mask.data[i]&&!baseA.data[i])addedA++;if(mappedDetail.data[i]&&!mappedBase.data[i])addedB++;}
  const fineDetail=detailA||detailB?{reference:detailA?.record||null,current:detailB?.record||null,added_common_reference_px2:addedA,added_common_current_px2:addedB,mapping:'source_pixel_forward_raster',measurement:'union_masks_in_reference_common_region'}:null;
- const warnings=[o.detector==='unet'?'U-Net 분할 후보입니다. 가는 균열의 누락과 얼룩·그림자의 오검출을 확인하세요.':'명암 규칙으로 검출한 균열 후보입니다. 얼룩·그림자를 육안 확인하세요.','조명, 해상도 및 촬영 위치에 따라 검출 차이가 생길 수 있습니다.'];if(o.guide)warnings.push(fineDetail?'선택한 분석 영역의 공통 부분만 측정합니다.':o.guideScope==='segment'?'첫 대응점과 마지막 대응점 사이의 지정 구간만 분석했습니다. 구간 밖과 주변 폭 밖의 균열은 측정에 포함되지 않습니다.':'대응점 주변에서만 균열 후보를 검출했습니다. 경로 밖 후보는 제외됩니다.');if(manualSimilarity)warnings.push('간단 정렬은 이동·회전·크기만 보정합니다. 원근 차이와 대응점 선택에 따른 오차를 확인하세요.');
+ const warnings=[o.detector==='path'?'사진의 지정 경로 주변을 분석합니다. 표면 공극과 박락부의 경계는 측정에서 제외합니다.':o.detector==='unet'?'U-Net 분할 후보입니다. 가는 균열의 누락과 얼룩·그림자의 오검출을 확인하세요.':'명암 규칙으로 검출한 균열 후보입니다. 얼룩·그림자를 육안 확인하세요.','조명, 해상도 및 촬영 위치에 따라 검출 차이가 생길 수 있습니다.'];if(o.guide)warnings.push(fineDetail?'선택한 분석 영역의 공통 부분만 측정합니다.':o.guideScope==='segment'?'첫 대응점과 마지막 대응점 사이의 지정 구간만 분석했습니다. 구간 밖과 주변 폭 밖의 균열은 측정에 포함되지 않습니다.':'대응점 주변에서만 균열 후보를 검출했습니다. 경로 밖 후보는 제외됩니다.');if(manualSimilarity)warnings.push('간단 정렬은 이동·회전·크기만 보정합니다. 원근 차이와 대응점 선택에 따른 오차를 확인하세요.');
  const vis=own(new cv.Mat(Math.max(h,cur.rows),w+cur.cols,cv.CV_8UC4,new cv.Scalar(230,230,230,255))),roi1=own(vis.roi(new cv.Rect(0,0,w,h))),roi2=own(vis.roi(new cv.Rect(w,0,cur.cols,cur.rows)));ref.copyTo(roi1);cur.copyTo(roi2);
  let shown=0;for(let i=0;i<p.length&&shown<60;i++){
   if(!manual&&!flags[i])continue;shown++;const color=flags[i]?new cv.Scalar(65,200,105,255):new cv.Scalar(220,60,50,255);
@@ -227,7 +241,7 @@ async function cvAnalyze(cv,refData,curData,o,manual,modelSegment,fine={},checkp
  function contours(mask,image){const curves=own(new cv.MatVector()),hier=mat(),copy=mat();mask.copyTo(copy);cv.findContours(copy,curves,hier,cv.RETR_LIST,cv.CHAIN_APPROX_SIMPLE);cv.drawContours(image,curves,-1,new cv.Scalar(230,75,35,255),1);}
  contours(fullA,refContour);contours(fullB,curContour);
  function pixels(m){let rgba=m;if(m.channels()!==4){rgba=mat();cv.cvtColor(m,rgba,cv.COLOR_GRAY2RGBA)}return {width:rgba.cols,height:rgba.rows,data:new Uint8ClampedArray(rgba.data)}}
- return {segmentation:{method:(o.detector==='unet'?(o.refine?'U-Net + 명암 보완':'U-Net'):'명암 기반')+(fineDetail?' + 가는 균열':''),fine_detail:fineDetail,postprocessing:o.detector==='unet'&&!o.refine?'model_threshold':'bilateral_ridge_hysteresis_v1',model:modelInfo},comparison:{assessment,fine_regions_included:!!fineDetail,scope:o.guide?(o.guideScope||'extended'):'all',analysis_area_px2:analysisArea,analysis_area_ratio:analysisArea/(w*h)},registration:{verification,method:manual?(manualSimilarity?`수동 간단 정렬 (${matches}쌍)`:`수동 원근 정렬 (${matches}쌍)`):'ORB + RANSAC',manual:!!manual,matches,inliers:errors.length,inlier_ratio:errors.length/matches,median_error_px:median,overlap_ratio:overlap},metrics,warnings,parameters:o,homography_current_to_reference:[hm.slice(0,3),hm.slice(3,6),hm.slice(6)],processing_size:{reference:[w,h],current:[cur.cols,cur.rows]},images:{reference:pixels(ref),reference_contour:pixels(refContour),current_contour:pixels(curContour),reference_preprocessed:pixels(processed[0]),current_preprocessed:pixels(processed[1]),aligned:pixels(aligned),overlay:pixels(overlay),matches:pixels(vis),current_mask:pixels(fullB),reference_mask:pixels(fullA)}};
+ return {segmentation:{method:(o.detector==='path'?'균열 경로 · 명암 기반':o.detector==='unet'?(o.refine?'U-Net + 명암 보완':'U-Net'):'명암 기반')+(fineDetail?' + 가는 균열':''),fine_detail:fineDetail,postprocessing:o.detector==='path'?'guided_bilateral_ridges':o.detector==='unet'&&!o.refine?'model_threshold':'bilateral_ridge_hysteresis_v1',model:modelInfo},comparison:{assessment,fine_regions_included:!!fineDetail,scope:o.guide?(o.guideScope||'extended'):'all',analysis_area_px2:analysisArea,analysis_area_ratio:analysisArea/(w*h)},registration:{verification,method:manual?(manualSimilarity?`수동 간단 정렬 (${matches}쌍)`:`수동 원근 정렬 (${matches}쌍)`):'ORB + RANSAC',manual:!!manual,matches,inliers:errors.length,inlier_ratio:errors.length/matches,median_error_px:median,overlap_ratio:overlap},metrics,warnings,parameters:o,homography_current_to_reference:[hm.slice(0,3),hm.slice(3,6),hm.slice(6)],processing_size:{reference:[w,h],current:[cur.cols,cur.rows]},images:{reference:pixels(ref),reference_contour:pixels(refContour),current_contour:pixels(curContour),reference_preprocessed:pixels(processed[0]),current_preprocessed:pixels(processed[1]),aligned:pixels(aligned),overlay:pixels(overlay),matches:pixels(vis),current_mask:pixels(fullB),reference_mask:pixels(fullA)}};
  }finally{for(let i=allocated.length-1;i>=0;i--)allocated[i].delete();}
 }
 function roundPixels(value){
